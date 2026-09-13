@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html><head>
+<meta charset='utf-8'>
+<meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>Site Access Information RSM</title>
+<link rel='stylesheet' href='https://cdn.jsdelivr.net/npm/ol@latest/ol.css'>
+<script src='https://cdn.jsdelivr.net/npm/ol@latest/dist/ol.js'></script>
+<script src='https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2'></script>
+<style>
+body{margin:0;font-family:Segoe UI}header{background:#003366;color:#fff;padding:10px;display:flex;justify-content:space-between}#logo{background:#fff;color:#000;padding:8px;font-weight:bold}#wrap{display:grid;grid-template-columns:360px 1fr;height:calc(100vh - 70px)}#left{overflow:auto;padding:10px;border-right:1px solid #ccc}.site{padding:6px;border-bottom:1px solid #eee;cursor:pointer}.card{background:#f5f5f5;padding:10px;margin-top:10px;border-radius:6px}button,input,textarea{width:100%;box-sizing:border-box;padding:8px;margin:3px 0}#map{width:100%;height:100%}#form{display:none}
+</style></head><body>
+<header><h2>Site Access Information RSM</h2><div id='logo'>RADIO SPECTRUM<br>MANAGEMENT</div></header>
+<div id='wrap'><div id='left'>
+<input id='search' placeholder='Search'>
+<div id='list'></div>
+<button onclick='showAdd()'>➕ Add New Site</button>
+<button onclick='showEdit()'>✏️ Edit Site</button>
+<button onclick='copyCoords()'>📋 Copy Coordinates</button>
+<button onclick='exportCSV()'>📊 Export CSV</button>
+<button onclick='csvFile.click()'>📂 Import CSV</button>
+<input type='file' id='csvFile' style='display:none' accept='.csv'>
+<button onclick='deleteSite()'>🗑️ Delete Site</button>
+<div id='info' class='card'>Select a site...</div>
+<div id='form' class='card'>
+<input id='siteName' placeholder='Site Name'>
+<input id='coords' placeholder='Latitude,Longitude'>
+<input id='landOwner' placeholder='Land Owner'>
+<input id='contactNumber' placeholder='Contact Number'>
+<input id='contactEmail' placeholder='Contact Email'>
+<textarea id='instructions' placeholder='Site Instructions'></textarea>
+<button onclick='saveSite()'>Save Site</button>
+</div></div><div id='map'></div></div>
+<script>
+const sb=supabase.createClient('https://ofzylnkfeeiyhjmicqcb.supabase.co','sb_publishable_ltmGjeX_sxy0O3CA_PyRwQ_JYyKquns');
+let sites=[],selected=null;
+const sat=new ol.layer.Tile({source:new ol.source.XYZ({url:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'})});
+const source=new ol.source.Vector();
+const layer=new ol.layer.Vector({source:source,style:f=>new ol.style.Style({image:new ol.style.Circle({radius:10,fill:new ol.style.Fill({color:'red'}),stroke:new ol.style.Stroke({color:'#fff',width:3})}),text:new ol.style.Text({text:(sites[f.get('idx')]||{}).site_name||'',offsetY:-18,fill:new ol.style.Fill({color:'#fff'}),stroke:new ol.style.Stroke({color:'#000',width:3})})})});
+const map=new ol.Map({target:'map',layers:[sat,layer],view:new ol.View({center:ol.proj.fromLonLat([174.8,-41.2]),zoom:6})});
+async function loadSites(){const {data}=await sb.from('Sites').select('*').order('id');sites=data||[];render();refreshMap();}
+function render(){list.innerHTML=sites.map((s,i)=>`<div class='site' onclick='showSite(${i})'>${s.id} - ${s.site_name}</div>`).join('');}
+function refreshMap(){source.clear();sites.forEach((s,i)=>source.addFeature(new ol.Feature({geometry:new ol.geom.Point(ol.proj.fromLonLat([s.longitude,s.latitude])),idx:i})));}
+function showSite(i){selected=sites[i];info.innerHTML=`<h3>${selected.site_name}</h3><b>Site ID:</b> ${selected.id}<br><b>Land Owner:</b> ${selected.land_owner||''}<br><b>Contact:</b> ${selected.contact_number||''}<br><b>Email:</b> ${selected.contact_email||''}<br><b>Instructions:</b><br>${selected.site_instructions||''}<br><br><a target='_blank' href='https://maps.google.com/?q=${selected.latitude},${selected.longitude}'>Open Google Maps</a>`;map.getView().animate({center:ol.proj.fromLonLat([selected.longitude,selected.latitude]),zoom:14});}
+function showAdd(){selected=null;form.style.display='block';document.querySelectorAll('#form input,#form textarea').forEach(x=>x.value='');}
+function showEdit(){if(!selected)return;form.style.display='block';siteName.value=selected.site_name||'';coords.value=selected.latitude+','+selected.longitude;landOwner.value=selected.land_owner||'';contactNumber.value=selected.contact_number||'';contactEmail.value=selected.contact_email||'';instructions.value=selected.site_instructions||'';}
+async function saveSite(){let c=coords.value.split(',');let row={site_name:siteName.value,latitude:parseFloat(c[0]),longitude:parseFloat(c[1]),land_owner:landOwner.value,contact_number:contactNumber.value,contact_email:contactEmail.value,site_instructions:instructions.value};if(selected){await sb.from('Sites').update(row).eq('id',selected.id);}else{await sb.from('Sites').insert(row);}form.style.display='none';loadSites();}
+async function deleteSite(){if(!selected)return;await sb.from('Sites').delete().eq('id',selected.id);loadSites();}
+function copyCoords(){if(selected)navigator.clipboard.writeText(selected.latitude+','+selected.longitude);}
+function exportCSV(){let csv='id,site_name,latitude,longitude,land_owner,contact_number,contact_email,site_instructions\n';sites.forEach(s=>csv+=`${s.id},${s.site_name},${s.latitude},${s.longitude},${s.land_owner||''},${s.contact_number||''},${s.contact_email||''},${s.site_instructions||''}\n`);const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv]));a.download='Sites.csv';a.click();}
+csvFile.onchange=async e=>{const t=await e.target.files[0].text();const lines=t.split(/\r?\n/).slice(1).filter(Boolean);for(const l of lines){const p=l.split(',');await sb.from('Sites').insert({site_name:p[1],latitude:p[2],longitude:p[3],land_owner:p[4],contact_number:p[5],contact_email:p[6],site_instructions:p[7]});}loadSites();};
+search.oninput=e=>{const q=e.target.value.toLowerCase();list.innerHTML=sites.filter(s=>(s.site_name||'').toLowerCase().includes(q)).map((s,i)=>`<div class='site' onclick='showSite(${i})'>${s.id} - ${s.site_name}</div>`).join('');};
+map.on('click',e=>map.forEachFeatureAtPixel(e.pixel,f=>showSite(f.get('idx'))));
+loadSites();
+</script></body></html>
